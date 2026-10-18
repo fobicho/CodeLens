@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#18191b">
+<meta name="robots" content="noindex">
+<title>Informe y auditoría</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Page-specific only: the report's own top bar. Everything else comes from
+     app.css, which the landing page links too, so the two cannot drift. */
+
+  /* The bar here carries the report's identity on the left and its two actions
+     on the right, so it needs a third track the landing bar does not have. */
+  .report-bar { grid-template-columns: 60px 1fr auto; }
+  .report-id { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .report-source {
+    font-size: var(--step-body); font-weight: 600; color: var(--ink);
+    line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* The one-line summary under the name: what the analysis concluded, said
+     with the numbers it concluded it from. */
+  .report-meta {
+    font-size: var(--step-small); font-weight: 500; color: var(--muted);
+    line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .report-actions { display: flex; align-items: center; gap: var(--gap); }
+
+  .rep-btn {
+    display: inline-flex; align-items: center; gap: 0.45em;
+    height: var(--bar-h); padding: 0 var(--tile-pad);
+    background: var(--surface); border: none; border-radius: var(--r);
+    color: var(--muted); font-family: var(--font); font-size: var(--step-small);
+    font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
+    transition: background-color var(--d-fast) var(--ease-out), color var(--d-fast) var(--ease-out);
+  }
+  .rep-btn:hover { background: var(--surface-2); color: var(--ink); }
+  .rep-btn svg { width: 1.05em; height: 1.05em; flex: none; }
+  .rep-btn-primary { background: var(--ink); color: var(--bg); }
+  .rep-btn-primary:hover { background: var(--accent); color: var(--accent-ink); }
+
+  /* The report is the whole page, so it does not need the landing's generous
+     opening gap under the bar. */
+  #results { margin-top: var(--gap-loose); }
+
+  /* Narrow: the identity line drops under the mark and the two actions take a
+     full row of their own, so neither is squeezed. */
+  @media (max-width: 760px) {
+    .report-bar {
+      grid-template-columns: 52px 1fr;
+      grid-template-rows: auto auto;
+      row-gap: var(--gap);
+    }
+    .report-actions { grid-column: 1 / -1; }
+    .rep-btn { flex: 1; justify-content: center; }
+    /* The summary wraps instead of truncating: losing its right-hand end is
+       what hid how many files were flagged. */
+    .report-meta { white-space: normal; }
+  }
+  @media (max-width: 420px) {
+    .report-source { font-size: var(--step-small); }
+  }
+
+  /* Placeholder shown while the analysis is being fetched, and the state that
+     stands in when the token is gone (evicted, or the server was restarted). */
+  .report-state {
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: 1rem; max-width: 52ch;
+    background: var(--surface); border-radius: var(--r);
+    padding: clamp(26px, 3vw, 42px);
+  }
+  .report-state h1 { font-size: var(--step-lead); font-weight: 800; letter-spacing: -0.03em; }
+  .report-state p { font-size: var(--step-body); color: var(--muted); line-height: 1.55; }
+  .report-state .rep-btn { height: auto; padding: 0.75rem 1.2rem; background: var(--ink); color: var(--bg); }
+  .report-state .rep-btn:hover { background: var(--accent); color: var(--accent-ink); }
+</style>
+</head>
+<body class="no-js">
+<script>document.documentElement.classList.remove('no-js');document.body.classList.remove('no-js');</script>
+
+<header class="topbar">
+  <div class="topbar-inner report-bar">
+    <a class="mark-tile" href="index.html" aria-label="CodeLens, volver al inicio">
+      <img src="icon.svg" alt="" width="30" height="30">
+    </a>
+    <div class="report-id">
+      <span class="report-source" id="reportSource">Cargando…</span>
+      <span class="report-meta" id="reportMeta"></span>
+    </div>
+    <div class="report-actions">
+      <a class="rep-btn" href="index.html">Nuevo análisis</a>
+      <button class="rep-btn rep-btn-primary" id="downloadBtn" type="button" title="Descargar el análisis completo en Markdown">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>
+        Descargar .md
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="board">
+
+  <div class="report-state" id="reportState">
+    <h1 id="stateTitle">Cargando el informe…</h1>
+    <p id="stateText">Un momento.</p>
+  </div>
+
+  <div id="results">
+    <div class="verdict red" id="verdictPanel">
+      <div class="ring">
+        <svg class="ring-svg" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+          <circle class="ring-value" id="ringValue" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <div class="ring-num"><span id="verdictScore">0</span><small>/100</small></div>
+      </div>
+      <div class="verdict-copy">
+        <div class="verdict-label">Veredicto</div>
+        <div class="verdict-value" id="verdictValue"></div>
+        <div class="verdict-sub" id="verdictSub"></div>
+      </div>
+    </div>
+
+    <div class="stats" id="statsGrid"></div>
+    <p class="truncation-note" id="truncationNote" hidden></p>
+
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" type="button" aria-pressed="true" onclick="switchTab('ai', event)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Detección de IA</button>
+      <button class="tab-btn" type="button" aria-pressed="false" onclick="switchTab('audit', event)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.4-3 7.9-7 10-4-2.1-7-5.6-7-10V6z"/></svg>Auditoría del código</button>
+    </div>
+
+    <div id="tab-ai" class="tab-content active">
+      <div class="toggle-section" style="margin-top:0;">
+        <button class="toggle-btn" type="button" aria-pressed="false" onclick="showFiles('green', event)"><svg class="dot" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#4ad07d"/></svg>Limpio</button>
+        <button class="toggle-btn" type="button" aria-pressed="false" onclick="showFiles('amber', event)"><svg class="dot" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#f0a83c"/></svg>Sospechoso</button>
+        <button class="toggle-btn" type="button" aria-pressed="false" onclick="showFiles('red', event)"><svg class="dot" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#ff4a1f"/></svg>Probable IA</button>
+        <button class="toggle-btn active" type="button" aria-pressed="true" onclick="showFiles('all', event)">Todos los archivos</button>
+      </div>
+      <div id="fileCountLabel"></div>
+      <div class="file-list" id="fileList"></div>
+    </div>
+
+    <div id="tab-audit" class="tab-content">
+      <h2 class="section-h"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="11"/><line x1="12" y1="20" x2="12" y2="5"/><line x1="18" y1="20" x2="18" y2="14"/></svg>Resumen ejecutivo</h2>
+      <div class="audit-scores" id="auditScores"></div>
+
+      <h2 class="section-h"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/></svg>Revisión de arquitectura</h2>
+      <div class="arch-review" id="archReview"></div>
+
+      <h2 class="section-h"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="12" y1="17" x2="12" y2="17"/></svg>Hallazgos (<span id="findingCount">0</span>)</h2>
+      <div id="findingsList"></div>
+
+      <h2 class="section-h"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><line x1="4" y1="6" x2="4" y2="6"/><line x1="4" y1="12" x2="4" y2="12"/><line x1="4" y1="18" x2="4" y2="18"/></svg>Plan de acción priorizado</h2>
+      <div style="overflow-x:auto;">
+        <table class="action-table" id="actionTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer-mark">
+    <div class="fmark-head">
+      <div class="fmark-blocks" aria-hidden="true">
+        <span>C</span>
+        <span class="fm-accent">o</span>
+        <span>d</span>
+        <span>e</span>
+        <span>L</span>
+        <span>e</span>
+        <span>n</span>
+        <span>s</span>
+      </div>
+      <a class="fb-top" href="#top">Volver arriba
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>
+      </a>
+    </div>
+    <nav class="footer-links" aria-label="Enlaces del pie">
+      <a href="index.html">Nuevo análisis</a>
+      <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <p class="footer-legal">Análisis 100% local · Licencia MIT · Juan Castro, 2024</p>
+  </footer>
+</div>
+
+<script>
+const results = document.getElementById('results');
+const reportState = document.getElementById('reportState');
+const downloadBtn = document.getElementById('downloadBtn');
+const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+let currentFilter = 'all';
+let currentResult = null;
+
+/* ============================ Loading ============================
+   The landing page posts the archive and hands off with a token; this page
+   asks the server for the analysis that token points at. Nothing is stored in
+   the browser, so a reload re-reads the same analysis instead of losing it. */
+function state(title, text, action) {
+  document.getElementById('stateTitle').textContent = title;
+  document.getElementById('stateText').textContent = text;
+  reportState.querySelectorAll('.rep-btn').forEach(b => b.remove());
+  if (action) {
+    const a = document.createElement('a');
+    a.className = 'rep-btn';
+    a.href = action.href;
+    a.textContent = action.label;
+    reportState.appendChild(a);
+  }
+}
+
+function load() {
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id) {
+    state('No hay ningún informe que mostrar',
+      'Esta página enseña el resultado de un análisis. Sube un archivo .zip o .rar desde la página principal y llegarás aquí automáticamente.',
+      { href: 'index.html', label: 'Ir a analizar un archivo' });
+    return;
+  }
+  fetch('/report?id=' + encodeURIComponent(id))
+    .then(r => r.json().then(body => ({ ok: r.ok, body })))
+    .then(({ ok, body }) => {
+      if (!ok || body.error) {
+        state('El informe ya no está disponible',
+          body.error || 'El servidor ha descartado este análisis. Vuelve a subir el archivo para generarlo otra vez.',
+          { href: 'index.html', label: 'Analizar de nuevo' });
+        return;
+      }
+      render(body);
+    })
+    .catch(() => {
+      state('No se pudo cargar el informe',
+        'No hubo respuesta del servidor. Comprueba que sigue en ejecución e inténtalo de nuevo.',
+        { href: 'index.html', label: 'Volver al inicio' });
+    });
+}
+
+function render(data) {
+  currentResult = data;
+  reportState.style.display = 'none';
+  results.classList.add('show');
+  /* The tab keeps the page's own name; the archive is already in the bar. */
+  document.getElementById('reportSource').textContent = data.source_name || 'análisis';
+  document.getElementById('reportMeta').textContent =
+    data.verdict + ' · ' + data.avg_score + '/100 · ' +
+    data.total_files + ' archivos · ' + data.files_above_threshold + ' marcados';
+
+  const panel = document.getElementById('verdictPanel');
+  panel.className = 'verdict ' + (data.verdict_color === '#22c55e' ? 'green' : data.verdict_color === '#f59e0b' ? 'yellow' : 'red');
+  document.getElementById('verdictValue').textContent = data.verdict;
+  document.getElementById('verdictSub').textContent =
+    data.files_above_threshold + ' de ' + data.total_files + ' archivos marcados (\u2265 80)';
+  setRing(data.avg_score);
+
+  const note = document.getElementById('truncationNote');
+  note.hidden = !data.truncated;
+  if (data.truncated) {
+    note.textContent = 'El archivo supera el límite de ' + data.max_files +
+      ' archivos fuente: este informe cubre los primeros ' + data.total_files +
+      ' que se encontraron, no el repositorio completo.';
+  }
+
+  const stats = document.getElementById('statsGrid');
+  stats.innerHTML = '';
+  const statsData = [
+    { to: data.total_files, label: 'ARCHIVOS ANALIZADOS', dec: 0 },
+    { to: data.files_above_threshold, label: 'ARCHIVOS MARCADOS', dec: 0 },
+    { to: data.avg_score, label: 'PUNTUACIÓN MEDIA', dec: 1 },
+    { text: data.min_score + '\u2013' + data.max_score, label: 'RANGO DE PUNTUACIÓN' },
+  ];
+  statsData.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'stat-box';
+    div.innerHTML = '<div class="stat-value"></div><div class="stat-label">' + item.label + '</div>';
+    stats.appendChild(div);
+    const valueEl = div.querySelector('.stat-value');
+    if (item.text !== undefined) valueEl.textContent = item.text;
+    else animateCount(valueEl, item.to, item.dec, 650 + i * 90);
+  });
+
+  renderFileList(data);
+  if (data.audit) renderAudit(data.audit);
+}
+
+/* ============================ Rendering ============================ */
+function getScoreClass(score) { return score >= 80 ? 'red' : score >= 30 ? 'amber' : 'green'; }
+
+const SEV_CLASS = { 'Crítico': 'critical', 'Alto': 'high', 'Medio': 'medium', 'Bajo': 'low' };
+const SEV_ORDER = { 'Crítico': 0, 'Alto': 1, 'Medio': 2, 'Bajo': 3 };
+function sevClass(sev) { return SEV_CLASS[sev] || 'low'; }
+function impactClass(imp) {
+  return (imp === 'Crítico' || imp === 'Alto') ? 'action-impact-high' : imp === 'Medio' ? 'action-impact-medium' : 'action-impact-low';
+}
+
+/* ============================ Findings ============================
+   One card per distinct fix, not one card per file. Forty silent catches in
+   forty files are one finding with forty pieces of evidence; printing the
+   same paragraph forty times is what made the section read as machine-written
+   and hid the only thing that matters, which is where it happens. */
+const MAX_EVIDENCE = 12;
+
+function groupFindings(list) {
+  const byKey = new Map();
+  for (const f of list) {
+    const key = f.category + '\u0000' + f.recommendation;
+    let g = byKey.get(key);
+    if (!g) {
+      g = {
+        category: f.category, severity: f.severity, confidence: f.confidence,
+        explanation: f.explanation, impact: f.estimated_impact,
+        recommendation: f.recommendation, fixes: new Map(), items: []
+      };
+      byKey.set(key, g);
+    }
+    if ((SEV_ORDER[f.severity] ?? 4) < (SEV_ORDER[g.severity] ?? 4)) g.severity = f.severity;
+    if (f.confidence === 'Baja' || (f.confidence === 'Media' && g.confidence === 'Alta')) g.confidence = f.confidence;
+    /* The same advice needs a different line of code per language, so the fix
+       block lists one per language instead of borrowing the first file's. */
+    if (f.snippet && !g.fixes.has(f.snippet)) g.fixes.set(f.snippet, f.language_tag || '');
+    g.items.push(f);
+  }
+  return [...byKey.values()].sort((a, b) => (SEV_ORDER[a.severity] ?? 4) - (SEV_ORDER[b.severity] ?? 4));
+}
+
+function findingCard(g) {
+  let meta = g.items.length > 1 ? g.items.length + ' casos' : '';
+  /* A confidence chip that always reads "Alta" is decoration, so it only
+     appears when the group is actually less certain than that. */
+  if (g.confidence && g.confidence !== 'Alta') meta += (meta ? ' · ' : '') + 'confianza ' + g.confidence.toLowerCase();
+
+  let ev = g.items.slice(0, MAX_EVIDENCE).map(i =>
+    '<li><span class="finding-loc">' + escapeHtml(i.location) + '</span>' +
+    (i.evidence ? '<span class="finding-detail' + (i.evidence_code ? ' code' : '') + '">' +
+      escapeHtml(i.evidence) + '</span>' : '') +
+    '</li>').join('');
+  if (g.items.length > MAX_EVIDENCE) {
+    ev += '<li><span class="finding-loc">y ' + (g.items.length - MAX_EVIDENCE) + ' más</span></li>';
+  }
+
+  const fixes = [...g.fixes];
+  const fixHtml = fixes.map(([code, tag]) =>
+    '<code class="finding-code">' +
+      (fixes.length > 1 && tag ? '<span class="finding-code-lang">' + escapeHtml(tag) + '</span>' : '') +
+      escapeHtml(code) +
+    '</code>').join('');
+
+  return '<article class="finding-card">' +
+    '<div class="finding-head">' +
+      '<h3 class="finding-cat">' + escapeHtml(g.category) + '</h3>' +
+      (meta ? '<span class="finding-meta">' + escapeHtml(meta) + '</span>' : '') +
+    '</div>' +
+    '<ul class="finding-ev">' + ev + '</ul>' +
+    (g.explanation ? '<p class="finding-why">' + escapeHtml(g.explanation) + '</p>' : '') +
+    (g.impact ? '<p class="finding-impact">' + escapeHtml(g.impact) + '</p>' : '') +
+    '<div class="finding-fix">' + escapeHtml(g.recommendation) + fixHtml + '</div>' +
+  '</article>';
+}
+
+/* One heading per severity, not a badge on every card: the type is read once
+   in a single column down the list instead of nine times in nine headers, and
+   the count next to it adds up to the total in the section heading. */
+function findingsHtml(list) {
+  const groups = groupFindings(list);
+  if (!groups.length) return '<div class="empty-state">Ningún patrón de riesgo conocido en los archivos analizados.</div>';
+
+  let html = '';
+  let current = null;
+  for (const g of groups) {
+    if (g.severity !== current) {
+      current = g.severity;
+      const total = groups.filter(x => x.severity === current)
+        .reduce((n, x) => n + x.items.length, 0);
+      html += '<div class="sev-head ' + sevClass(current) + '">' +
+        '<span class="sev-dot" aria-hidden="true"></span>' + escapeHtml(current) +
+        '<span class="sev-count">' + total + '</span>' +
+      '</div>';
+    }
+    html += findingCard(g);
+  }
+  return html;
+}
+
+function animateCount(el, to, dec, duration) {
+  if (!el) return;
+  const fmt = v => dec ? v.toFixed(dec) : Math.round(v).toString();
+  if (prefersReduced.matches || !isFinite(to)) { el.textContent = fmt(to || 0); return; }
+  const start = performance.now();
+  const dur = duration || 700;
+  function step(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmt(to * eased);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function setRing(score) {
+  const ring = document.getElementById('ringValue');
+  const C = 2 * Math.PI * 52;
+  const clamped = Math.max(0, Math.min(100, score));
+  ring.style.strokeDasharray = C;
+  ring.style.transition = 'none';
+  ring.style.strokeDashoffset = C;
+  void ring.getBoundingClientRect();
+  ring.style.transition = '';
+  requestAnimationFrame(() => { ring.style.strokeDashoffset = C * (1 - clamped / 100); });
+  animateCount(document.getElementById('verdictScore'), score, Number.isInteger(score) ? 0 : 1, 900);
+}
+
+function switchTab(tab, ev) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    const on = tab === 'ai' ? i === 0 : i === 1;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.getElementById('tab-ai').classList.toggle('active', tab === 'ai');
+  document.getElementById('tab-audit').classList.toggle('active', tab === 'audit');
+}
+
+function renderAudit(audit) {
+  const scoresEl = document.getElementById('auditScores');
+  scoresEl.innerHTML = '';
+  for (const s of audit.scores) {
+    const cls = s.score >= 75 ? 'score-green' : s.score >= 50 ? 'score-amber' : 'score-critical';
+    scoresEl.innerHTML += '<div class="audit-score-box"><div class="audit-score-value ' + cls + '">' + s.score +
+      '</div><div class="audit-score-label">' + s.category + '</div></div>';
+  }
+
+  const ar = audit.architecture_review;
+  let archHtml = '<h3>Resumen de arquitectura</h3>';
+  [
+    ['Separación de responsabilidades', ar.separation_of_concerns],
+    ['Gestión de dependencias', ar.dependency_management],
+    ['Capas', ar.layering],
+    ['Modelo de dominio', ar.domain_modeling],
+    ['Estrategia de pruebas', ar.test_strategy],
+    ['Estrategia de acceso a datos', ar.data_access_strategy],
+    ['Postura de seguridad', ar.security_posture],
+  ].forEach(([label, value]) => {
+    if (value) archHtml += '<div class="arch-item"><span class="arch-label">' + label +
+      '</span><span class="arch-value">' + escapeHtml(value) + '</span></div>';
+  });
+  document.getElementById('archReview').innerHTML = archHtml;
+
+  const findingsEl = document.getElementById('findingsList');
+  document.getElementById('findingCount').textContent = audit.findings.length;
+  findingsEl.innerHTML = findingsHtml(audit.findings || []);
+
+  const tableEl = document.getElementById('actionTable');
+  let rows = '<thead><tr><th>#</th><th>Problema</th><th>Esfuerzo</th><th>Impacto</th><th>Recomendación</th></tr></thead><tbody>';
+  for (const a of audit.action_plan) {
+    const impactCls = impactClass(a.impact);
+    rows += '<tr><td class="action-priority">' + a.priority + '</td><td>' + escapeHtml(a.issue) +
+      '</td><td><span class="action-effort">' + escapeHtml(a.effort) + '</span></td><td class="' + impactCls + '">' + escapeHtml(a.impact) +
+      '</td><td>' + escapeHtml(a.recommendation) + '</td></tr>';
+  }
+  tableEl.innerHTML = rows + '</tbody>';
+}
+
+function renderFileList(data) {
+  const list = document.getElementById('fileList');
+  const countLabel = document.getElementById('fileCountLabel');
+  const all = data.files || [];
+
+  let filtered = all;
+  if (currentFilter !== 'all') {
+    /* Compare the selected bucket against the class derived from the score.
+       The earlier version compared the server's own colour against the class
+       derived from the same score, which is true for every file and made the
+       filter a no-op. Deriving from the score also keeps the filter, the
+       count label and the score badge telling the same story. */
+    filtered = all.filter(f => getScoreClass(f.score) === currentFilter);
+    const label = currentFilter === 'green' ? 'Limpio (0-29)' : currentFilter === 'amber' ? 'Sospechoso (30-79)' : 'Probable IA (80+)';
+    countLabel.textContent = label + ' · ' + filtered.length + ' archivos';
+  } else {
+    countLabel.textContent = 'Todos los archivos · ' + filtered.length + ' archivos';
+  }
+
+  let html = '';
+  filtered.forEach(f => {
+    const cls = getScoreClass(f.score);
+    const pct = Math.round(f.score);
+    let signalsHtml = '';
+    if (f.signals) {
+      for (const sig of f.signals) {
+        signalsHtml += '<div class="sig-row"><span class="sig-name">' + escapeHtml(sig.name) + ': ' + Number(sig.score).toFixed(1) + '</span>';
+        if (sig.details) {
+          for (const d of sig.details.slice(0, 3)) {
+            signalsHtml += '<div class="sig-detail">• ' + escapeHtml(d) + '</div>';
+          }
+        }
+        signalsHtml += '</div>';
+      }
+    }
+    html += '<div class="file-item">' +
+      '<span class="file-lang">' + escapeHtml(f.tag || '??') + '</span>' +
+      '<span class="file-name" title="' + escapeHtml(f.filename) + '">' + escapeHtml(f.filename) + '</span>' +
+      '<div class="bar-cell"><div class="bar-bg"><div class="bar-fill ' + cls + '" style="--s:' + (pct / 100) + '"></div></div></div>' +
+      '<span class="file-score score-' + cls + '">' + f.score + '</span>' +
+      '<button class="signals-toggle" type="button" aria-expanded="false" aria-label="Ver señales" onclick="toggleSignals(this)"><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>' +
+      '<div class="signals-panel"><div class="signals-inner">' + signalsHtml + '</div></div>' +
+    '</div>';
+  });
+
+  list.innerHTML = html || '<div class="empty-state">Ningún archivo coincide con este filtro.</div>';
+}
+
+function toggleSignals(btn) {
+  const item = btn.closest('.file-item');
+  const panel = item.querySelector('.signals-panel');
+  const open = panel.classList.toggle('visible');
+  item.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function showFiles(filter, ev) {
+  currentFilter = filter;
+  document.querySelectorAll('.toggle-section .toggle-btn').forEach(b => {
+    const on = b === (ev && ev.currentTarget);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  if (currentResult) renderFileList(currentResult);
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+
+/* ========================= Markdown export ========================= */
+function mdEscape(s) {
+  return String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
+}
+
+function scoreVerdict(score) {
+  return score >= 80 ? 'Probable IA' : score >= 30 ? 'Sospechoso' : 'Limpio';
+}
+
+function reportFileName(name) {
+  const base = (name || 'report').replace(/\.[^./\\]+$/, '').replace(/[^\w.-]+/g, '_');
+  return (base || 'report') + '-report.md';
+}
+
+function buildMarkdown(data) {
+  const L = [];
+  L.push('# CodeLens - Informe');
+  L.push('');
+  L.push('- **Archivo origen:** ' + mdEscape(data.source_name || '(desconocido)'));
+  L.push('- **Generado:** ' + new Date().toISOString());
+  L.push('- **Veredicto:** ' + data.verdict);
+  L.push('- **Archivos analizados:** ' + data.total_files);
+  L.push('- **Archivos marcados (puntuación >= 80):** ' + data.files_above_threshold);
+  L.push('- **Puntuación media:** ' + data.avg_score);
+  L.push('- **Rango de puntuación:** ' + data.min_score + ' - ' + data.max_score);
+  L.push('');
+
+  L.push('## Detección de IA');
+  L.push('');
+  L.push('| # | Archivo | Lenguaje | Puntuación | Veredicto |');
+  L.push('|---|---------|----------|-----------:|-----------|');
+  (data.files || []).forEach((f, i) => {
+    L.push('| ' + (i + 1) + ' | ' + mdEscape(f.filename) + ' | ' + (f.tag || f.language) +
+      ' | ' + f.score + ' | ' + scoreVerdict(f.score) + ' |');
+  });
+  L.push('');
+
+  L.push('### Señales por archivo');
+  L.push('');
+  (data.files || []).forEach(f => {
+    L.push('#### ' + mdEscape(f.filename) + ' - ' + f.score + ' (' + scoreVerdict(f.score) + ')');
+    L.push('');
+    (f.signals || []).forEach(s => {
+      L.push('- **' + mdEscape(s.name) + ':** ' + Number(s.score).toFixed(1));
+      (s.details || []).forEach(d => L.push('  - ' + mdEscape(d)));
+    });
+    L.push('');
+  });
+
+  if (data.audit) {
+    const a = data.audit;
+    L.push('## Auditoría del código');
+    L.push('');
+    L.push('### Puntuaciones');
+    L.push('');
+    L.push('| Categoría | Puntuación |');
+    L.push('|-----------|-----------:|');
+    (a.scores || []).forEach(s => L.push('| ' + mdEscape(s.category) + ' | ' + s.score + ' |'));
+    L.push('');
+
+    const ar = a.architecture_review || {};
+    L.push('### Revisión de arquitectura');
+    L.push('');
+    [
+      ['Separación de responsabilidades', ar.separation_of_concerns],
+      ['Gestión de dependencias', ar.dependency_management],
+      ['Capas', ar.layering],
+      ['Modelo de dominio', ar.domain_modeling],
+      ['Estrategia de pruebas', ar.test_strategy],
+      ['Estrategia de acceso a datos', ar.data_access_strategy],
+      ['Postura de seguridad', ar.security_posture],
+    ].forEach(([label, value]) => { if (value) L.push('- **' + label + ':** ' + mdEscape(value)); });
+    L.push('');
+
+    L.push('### Hallazgos (' + (a.findings || []).length + ')');
+    L.push('');
+    groupFindings(a.findings || []).forEach(g => {
+      L.push('#### ' + mdEscape(g.category) + ' - ' + g.severity +
+        (g.items.length > 1 ? ' - ' + g.items.length + ' casos' : ''));
+      L.push('');
+      g.items.forEach(i => {
+        const ev = i.evidence
+          ? (i.evidence_code ? ' - `' + mdEscape(i.evidence) + '`' : ' - ' + mdEscape(i.evidence))
+          : '';
+        L.push('- `' + mdEscape(i.location) + '`' + ev);
+      });
+      L.push('');
+      if (g.explanation) { L.push(mdEscape(g.explanation)); L.push(''); }
+      L.push('- **Impacto:** ' + mdEscape(g.impact));
+      L.push('- **Arreglo:** ' + mdEscape(g.recommendation));
+      [...g.fixes].forEach(([code, tag]) => {
+        L.push('  - ' + (g.fixes.size > 1 && tag ? tag + ': ' : '') + '`' + mdEscape(code) + '`');
+      });
+      L.push('');
+    });
+
+    L.push('### Plan de acción priorizado');
+    L.push('');
+    L.push('| # | Problema | Esfuerzo | Impacto | Recomendación |');
+    L.push('|---|----------|----------|---------|----------------|');
+    (a.action_plan || []).forEach(p => {
+      L.push('| ' + p.priority + ' | ' + mdEscape(p.issue) + ' | ' + p.effort + ' | ' +
+        p.impact + ' | ' + mdEscape(p.recommendation) + ' |');
+    });
+    L.push('');
+  }
+
+  return L.join('\n');
+}
+
+function downloadReport() {
+  if (!currentResult) return;
+  const blob = new Blob([buildMarkdown(currentResult)], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = reportFileName(currentResult.source_name);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+downloadBtn.addEventListener('click', downloadReport);
+
+/* ---- The bar gains its denser tone once the page has actually moved ---- */
+(function () {
+  function onScroll() { document.body.classList.toggle('scrolled', scrollY > 12); }
+  addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+
+load();
+</script>
+</body>
+</html>

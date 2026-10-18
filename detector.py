@@ -190,26 +190,26 @@ def signal_generic_naming(identifiers):
     uniq = set(identifiers)
     total = len(uniq)
     if total == 0:
-        return 0.0, ["No identifiers found"]
+        return 0.0, ["No se encontraron identificadores"]
     generic = sum(1 for i in uniq if i.lower() in GENERIC_NAMES or i in GENERIC_NAMES)
     ratio = generic / total
     score = _clamp(ratio * 250)
     return score, [
-        "Total unique identifiers: %d" % total,
-        "AI-signature names: %d/%d (%d%%)" % (generic, total, round(ratio * 100)),
+        "Identificadores únicos: %d" % total,
+        "Nombres típicos de IA: %d/%d (%d%%)" % (generic, total, round(ratio * 100)),
     ]
 
 
 def signal_code_density(lines):
     total = len(lines)
     if total == 0:
-        return 0.0, ["No lines found"]
+        return 0.0, ["No se encontraron líneas"]
     meaningful = sum(1 for l in lines if l.strip())
     pct = meaningful / total * 100
     score = _clamp((pct - 80) * 3.0)
     return score, [
-        "Total lines: %d" % total,
-        "Meaningful lines: %d (%d%%)" % (meaningful, round(pct)),
+        "Líneas totales: %d" % total,
+        "Líneas con contenido: %d (%d%%)" % (meaningful, round(pct)),
     ]
 
 
@@ -217,7 +217,7 @@ def signal_comments(lines, lang):
     total = len(lines)
     comment_lines, texts = _extract_comments(lines, lang)
     if comment_lines == 0:
-        return 12.0, ["No comments found"]
+        return 12.0, ["No se encontraron comentarios"]
     trivial = 0
     for t in texts:
         low = t.lower()
@@ -227,8 +227,8 @@ def signal_comments(lines, lang):
     ratio = comment_lines / total if total else 0
     score = _clamp(triv_ratio * 70 + (0 if ratio >= 0.05 else 15))
     return score, [
-        "Comment lines: %d/%d (%d%%)" % (comment_lines, total, round(ratio * 100)),
-        "Trivial comments: %d (%d%% of comments)" % (trivial, round(triv_ratio * 100)),
+        "Líneas de comentario: %d/%d (%d%%)" % (comment_lines, total, round(ratio * 100)),
+        "Comentarios triviales: %d (%d%% de los comentarios)" % (trivial, round(triv_ratio * 100)),
     ]
 
 
@@ -240,26 +240,26 @@ def signal_formatting(lines):
         std = statistics.pstdev(indents)
     score = _clamp((6.0 - std) * 10, 0, 60)
     return score, [
-        "Total lines: %d" % len(lines),
-        "Indentation std dev: %.1f" % std,
+        "Líneas totales: %d" % len(lines),
+        "Desv. típica de indentación: %.1f" % std,
     ]
 
 
 def signal_error_handling(code_lines, try_count):
     if code_lines == 0:
-        return 0.0, ["No code lines found"]
+        return 0.0, ["No se encontraron líneas de código"]
     ratio = try_count / code_lines
     score = _clamp(ratio * 700)
     return score, [
-        "Total code lines: %d" % code_lines,
-        "Try/catch blocks: %d" % try_count,
+        "Líneas de código: %d" % code_lines,
+        "Bloques try/catch: %d" % try_count,
     ]
 
 
 def signal_structure(lines):
     nonblank = [l for l in lines if l.strip()]
     if not nonblank:
-        return 0.0, ["No lines found"]
+        return 0.0, ["No se encontraron líneas"]
     lengths = [len(l.rstrip()) for l in nonblank]
     mean = statistics.mean(lengths)
     cvd = (statistics.pstdev(lengths) / mean) if mean else 0.0
@@ -299,8 +299,8 @@ def signal_structure(lines):
     raw = min(raw, 60.0)
     score = _clamp(raw / 60.0 * 70)
     return score, [
-        "Score: %d/60" % round(raw),
-        "Variable line lengths (CV: %.2f)" % cvd,
+        "Puntuación: %d/60" % round(raw),
+        "Longitud de líneas (CV: %.2f)" % cvd,
     ]
 
 
@@ -316,20 +316,20 @@ def signal_modern(text, lines, lang):
     density = total_matches / len(lines) if lines else 0
     score = _clamp((len(found) / len(feats)) * 45 + density * 100 * 0.5)
     return score, [
-        "Features found: %d/%d (%d%%)" % (len(found), len(feats), round(len(found) / len(feats) * 100)),
-        "Feature density: %d%% of lines use modern features" % round(density * 100),
+        "Funciones detectadas: %d/%d (%d%%)" % (len(found), len(feats), round(len(found) / len(feats) * 100)),
+        "Densidad: %d%% de las líneas usan funciones modernas" % round(density * 100),
     ]
 
 
 # Aggregation weights (higher = contributes more to the final score).
 WEIGHTS = {
-    "Generic variable naming": 0.22,
-    "Code density": 0.12,
-    "Comment ratio & trivial comments": 0.12,
-    "Formatting consistency": 0.14,
-    "Error handling pattern": 0.10,
-    "Structure": 0.14,
-    "Modern feature use": 0.16,
+    "Nombres de variables genéricos": 0.22,
+    "Densidad de código": 0.12,
+    "Comentarios y comentarios triviales": 0.12,
+    "Consistencia de formato": 0.14,
+    "Patrón de manejo de errores": 0.10,
+    "Estructura": 0.14,
+    "Uso de funciones modernas": 0.16,
 }
 
 
@@ -350,19 +350,19 @@ def analyze_file(relname, text):
 
     signals = []
     g, gd = signal_generic_naming(identifiers)
-    signals.append(("Generic variable naming", g, gd))
+    signals.append(("Nombres de variables genéricos", g, gd))
     c, cd = signal_code_density(lines)
-    signals.append(("Code density", c, cd))
+    signals.append(("Densidad de código", c, cd))
     m, md = signal_comments(lines, lang)
-    signals.append(("Comment ratio & trivial comments", m, md))
+    signals.append(("Comentarios y comentarios triviales", m, md))
     f, fd = signal_formatting(lines)
-    signals.append(("Formatting consistency", f, fd))
+    signals.append(("Consistencia de formato", f, fd))
     e, ed = signal_error_handling(len(code_lines), try_count)
-    signals.append(("Error handling pattern", e, ed))
+    signals.append(("Patrón de manejo de errores", e, ed))
     s, sd = signal_structure(lines)
-    signals.append(("Structure", s, sd))
+    signals.append(("Estructura", s, sd))
     mo, mod = signal_modern(text, lines, lang)
-    signals.append(("Modern feature use", mo, mod))
+    signals.append(("Uso de funciones modernas", mo, mod))
 
     score = round(sum(WEIGHTS[name] * val for name, val, _ in signals), 1)
 
@@ -381,10 +381,10 @@ def analyze_file(relname, text):
 
 def verdict_for(avg_score):
     if avg_score >= 60:
-        return "LIKELY AI-GENERATED", "#ef4444"
+        return "PROBABLEMENTE GENERADO POR IA", "#ef4444"
     if avg_score >= 25:
-        return "MIXED / SUSPICIOUS", "#f59e0b"
-    return "LIKELY HUMAN-WRITTEN", "#22c55e"
+        return "MIXTO / SOSPECHOSO", "#f59e0b"
+    return "PROBABLEMENTE ESCRITO POR UN HUMANO", "#22c55e"
 
 
 def analyze_project(files):
@@ -395,7 +395,7 @@ def analyze_project(files):
         return {
             "files": [], "total_files": 0, "files_above_threshold": 0,
             "avg_score": 0.0, "min_score": 0.0, "max_score": 0.0,
-            "verdict": "NO SOURCE FILES FOUND", "verdict_color": "#f59e0b",
+            "verdict": "NO SE ENCONTRARON ARCHIVOS FUENTE", "verdict_color": "#f59e0b",
         }
     scores = [f["score"] for f in analyzed]
     avg = statistics.mean(scores)

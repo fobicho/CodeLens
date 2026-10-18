@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="CodeLens">
+  <title>CodeLens</title>
+  <!--
+    CodeLens mark.
+
+    One letterform does two jobs. The C is the initial and the barrel of a lens;
+    the opening in its right side is both the bite of the letter and the mouth
+    the lens looks through. The accent tick in that opening is a code cursor,
+    the one coloured thing on the mark.
+
+    Built from exactly two masses so it survives a 16px favicon: a thick ring
+    and a small bar. Flat fills, no gradient, no shadow.
+
+    Colours are the product's own tokens, written out because a double hyphen
+    is not allowed inside a markup comment:
+      tile        #222427   (surface)
+      letterform  #eff0f1   (ink)
+      cursor      #ff4a1f   (accent)
+
+    Geometry, so this stays aligned if it is ever redrawn. The stroke straddles
+    the path, so the outer radius is the centreline radius plus half the stroke:
+      ring centre     (16, 16)
+      outer radius    10.2   spans 5.8 .. 26.2, equal margins on all four sides
+      stroke          3.5    centreline radius 8.45
+      mouth           opens 62 degrees, centred on the horizontal, so the two
+                      ends sit symmetrically at 11.648 and 20.352
+      cursor          on the ring's horizontal axis, seated inside the mouth
+    -->
+  <rect width="32" height="32" rx="7" fill="#222427"/>
+  <path
+    d="M23.243 11.648A8.45 8.45 0 1 0 23.243 20.352"
+    fill="none"
+    stroke="#eff0f1"
+    stroke-width="3.5"
+    stroke-linecap="butt"/>
+  <rect x="20.6" y="13.2" width="2.9" height="5.6" rx="0.9" fill="#ff4a1f"/>
+</svg>

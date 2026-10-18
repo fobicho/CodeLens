@@ -7,6 +7,7 @@ All extraction is guarded against path traversal ("zip slip").
 """
 
 import os
+import re
 import shutil
 import zipfile
 import tempfile
@@ -36,6 +37,15 @@ UNRAR_CANDIDATES = [
     r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
 ]
 
+# Characters Windows refuses in a path component, and the control range. A zip
+# built on macOS or Linux can legally carry them, so extracting under the
+# member's own name fails the whole archive rather than one file.
+_ILLEGAL_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')
+# Names the reserved device files answer to, with or without an extension.
+_RESERVED_STEMS = {"con", "prn", "aux", "nul"} | {
+    "%s%d" % (p, i) for i in range(1, 10) for p in ("com", "lpt")
+}
+
 
 def _find_unrar():
     exe = shutil.which("unrar") or shutil.which("UnRAR")
@@ -47,13 +57,54 @@ def _find_unrar():
     return None
 
 
+def _safe_disk_name(name):
+    """Make one path component writable, leaving it recognisable."""
+    clean = _ILLEGAL_CHARS.sub("_", name)
+    stem, ext = os.path.splitext(clean)
+    if stem.lower() in _RESERVED_STEMS:
+        clean = stem + "_" + ext
+    # Windows also drops trailing dots and spaces, which would collide with a
+    # sibling that has none.
+    clean = clean.rstrip(". ")
+    return clean or "_"
+
+
 def _safe_target(dest, name):
     """Resolve an archive member path inside dest, rejecting traversal."""
     name = name.replace("\\", "/").lstrip("/")
-    target = os.path.normpath(os.path.join(dest, name))
+    parts = []
+    for piece in name.split("/"):
+        # A reserved `..` is kept on purpose: normpath collapses it and the
+        # prefix check below is what rejects an escape.
+        if piece == "..":
+            parts.append(piece)
+            continue
+        if piece in ("", "."):
+            continue
+        parts.append(_safe_disk_name(piece))
+    if not parts:
+        raise ValueError("ruta vacía en el archivo: %s" % name)
+    target = os.path.normpath(os.path.join(dest, *parts))
     if not target.startswith(os.path.normpath(dest) + os.sep) and target != os.path.normpath(dest):
-        raise ValueError("unsafe path in archive: %s" % name)
+        raise ValueError("ruta insegura en el archivo: %s" % name)
     return target
+
+
+def _write_member(reader, info, target):
+    """Extract one member, leaving a sanitised name on disk.
+
+    The name is rewritten (see `_safe_disk_name`) so a path that is legal where
+    the archive was built still lands on Windows; the content is untouched,
+    which is what gets analysed. One member that still cannot be written is
+    skipped rather than allowed to fail the whole archive.
+    """
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    try:
+        with reader(info) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=1 << 16)
+    except OSError:
+        return False
+    return True
 
 
 def extract_zip(archive, dest):
@@ -61,10 +112,7 @@ def extract_zip(archive, dest):
         for info in zf.infolist():
             if info.is_dir():
                 continue
-            target = _safe_target(dest, info.filename)
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with zf.open(info) as src, open(target, "wb") as dst:
-                shutil.copyfileobj(src, dst, length=1 << 16)
+            _write_member(zf.open, info, _safe_target(dest, info.filename))
 
 
 def extract_rar(archive, dest):
@@ -74,33 +122,34 @@ def extract_rar(archive, dest):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode in (0, 1):  # 1 = warnings
             return
-        raise RuntimeError("unrar failed (%d): %s" % (proc.returncode, proc.stderr.strip()))
+        raise RuntimeError("unrar falló (%d): %s" % (proc.returncode, proc.stderr.strip()))
     try:
         import rarfile
     except ImportError:
         raise RuntimeError(
-            "Cannot extract .rar: install WinRAR (provides UnRAR.exe) or "
-            "`pip install rarfile` with an unrar backend on PATH.")
+            "No se puede extraer .rar: instala WinRAR (proporciona UnRAR.exe) o "
+            "`pip install rarfile` con un backend unrar en el PATH.")
     with rarfile.RarFile(archive) as rf:
         for info in rf.infolist():
             if info.isdir():
                 continue
-            target = _safe_target(dest, info.filename)
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with rf.open(info) as src, open(target, "wb") as dst:
-                shutil.copyfileobj(src, dst, length=1 << 16)
+            _write_member(rf.open, info, _safe_target(dest, info.filename))
 
 
 def extract(archive_path, filename):
     """Extract archive into a fresh temp dir. Returns that dir."""
     dest = tempfile.mkdtemp(prefix="aicode_")
-    lower = filename.lower()
-    if lower.endswith(".zip"):
-        extract_zip(archive_path, dest)
-    elif lower.endswith(".rar"):
-        extract_rar(archive_path, dest)
-    else:
-        raise ValueError("Unsupported archive type: %s (use .zip or .rar)" % filename)
+    try:
+        lower = filename.lower()
+        if lower.endswith(".zip"):
+            extract_zip(archive_path, dest)
+        elif lower.endswith(".rar"):
+            extract_rar(archive_path, dest)
+        else:
+            raise ValueError("Tipo de archivo no soportado: %s (usa .zip o .rar)" % filename)
+    except Exception:
+        cleanup(dest)
+        raise
     return dest
 
 
@@ -110,24 +159,28 @@ def _is_ignored(relpath):
 
 
 def _decode(data):
-    for enc in ("utf-8", "utf-8-sig", "latin-1"):
+    if b"\x00" in data:
+        return None
+    for enc in ("utf-8-sig", "latin-1"):
         try:
-            text = data.decode(enc)
-            if enc == "latin-1" or "\x00" not in text:
-                return text
+            return data.decode(enc)
         except UnicodeDecodeError:
             continue
     return None
 
 
 def collect_sources(root):
-    """Walk extracted tree, returning [(relpath, text)] for source files."""
+    """Walk extracted tree. Returns ([(relpath, text)], truncated).
+
+    `truncated` says the walk stopped at MAX_FILES with files still to read,
+    so the report can admit it instead of looking complete.
+    """
     files = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRS]
         for fn in filenames:
             if len(files) >= MAX_FILES:
-                return files
+                return files, True
             ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
             if ext not in SOURCE_EXTS:
                 continue
@@ -146,7 +199,7 @@ def collect_sources(root):
             if text is None:
                 continue
             files.append((rel, text))
-    return files
+    return files, False
 
 
 def cleanup(path):
