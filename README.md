@@ -31,9 +31,9 @@ python server.py
 El navegador se abre en `http://127.0.0.1:8000`. Arrastra un archivo a la página.
 
 ```bash
-python server.py --port 9000    # otro puerto
-python server.py --host 0.0.0.0 # exponerlo en tu red (lee Seguridad)
-python server.py --no-browser   # no abrir el navegador
+python server.py --port 9000       # otro puerto
+python server.py --host 0.0.0.0    # exponerlo en tu red (lee Seguridad)
+python server.py --no-browser      # no abrir el navegador
 ```
 
 **Requisitos:** Python 3.8 o superior y nada más. El `.zip` funciona tal cual;
@@ -179,7 +179,7 @@ red de confianza.
 
 ## Licencia
 
-[MIT](LICENSE) © 2024 fobicho.
+[MIT](LICENSE) © 2026 fobicho.
 
 Las dos fotografías de `assets/` vienen de Wikimedia Commons: *Punch card with
 Fortran*, de Tangopaso (dominio público), y *Macro circuit board*, de Ingo
