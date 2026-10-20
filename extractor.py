@@ -11,7 +11,6 @@ import re
 import shutil
 import zipfile
 import tempfile
-import subprocess
 
 SOURCE_EXTS = {
     "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts", "py", "pyw", "php",
@@ -31,6 +30,8 @@ IGNORED_DIRS = {
 
 MAX_FILE_BYTES = 1_500_000
 MAX_FILES = 8000
+MAX_ARCHIVE_MEMBERS = 20000
+MAX_EXTRACTED_BYTES = 512 * 1024 * 1024
 
 UNRAR_CANDIDATES = [
     r"C:\Program Files\WinRAR\UnRAR.exe",
@@ -90,7 +91,7 @@ def _safe_target(dest, name):
     return target
 
 
-def _write_member(reader, info, target):
+def _write_member(reader, info, target, remaining_bytes):
     """Extract one member, leaving a sanitised name on disk.
 
     The name is rewritten (see `_safe_disk_name`) so a path that is legal where
@@ -98,42 +99,64 @@ def _write_member(reader, info, target):
     which is what gets analysed. One member that still cannot be written is
     skipped rather than allowed to fail the whole archive.
     """
+    if getattr(info, "file_size", 0) > remaining_bytes:
+        raise ValueError("El archivo comprimido supera el límite de extracción de 512 MB.")
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    copied = 0
     try:
         with reader(info) as src, open(target, "wb") as dst:
-            shutil.copyfileobj(src, dst, length=1 << 16)
+            while True:
+                chunk = src.read(1 << 16)
+                if not chunk:
+                    break
+                copied += len(chunk)
+                if copied > remaining_bytes:
+                    raise ValueError("El archivo comprimido supera el límite de extracción de 512 MB.")
+                dst.write(chunk)
     except OSError:
-        return False
-    return True
+        return 0
+    return copied
 
 
 def extract_zip(archive, dest):
     with zipfile.ZipFile(archive) as zf:
-        for info in zf.infolist():
+        infos = zf.infolist()
+        if len(infos) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError("El archivo comprimido tiene más de 20000 elementos.")
+        declared_size = sum(max(0, info.file_size) for info in infos if not info.is_dir())
+        if declared_size > MAX_EXTRACTED_BYTES:
+            raise ValueError("El archivo comprimido supera el límite de extracción de 512 MB.")
+        extracted = 0
+        for info in infos:
             if info.is_dir():
                 continue
-            _write_member(zf.open, info, _safe_target(dest, info.filename))
+            extracted += _write_member(zf.open, info, _safe_target(dest, info.filename),
+                                       MAX_EXTRACTED_BYTES - extracted)
 
 
 def extract_rar(archive, dest):
     unrar = _find_unrar()
-    if unrar:
-        cmd = [unrar, "x", "-o+", "-inul", "-y", archive, dest + os.sep]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode in (0, 1):  # 1 = warnings
-            return
-        raise RuntimeError("unrar falló (%d): %s" % (proc.returncode, proc.stderr.strip()))
     try:
         import rarfile
     except ImportError:
         raise RuntimeError(
-            "No se puede extraer .rar: instala WinRAR (proporciona UnRAR.exe) o "
-            "`pip install rarfile` con un backend unrar en el PATH.")
+            "No se puede extraer .rar: instala `rarfile` y un backend como "
+            "WinRAR/UnRAR o unrar en el PATH.")
+    if unrar:
+        rarfile.UNRAR_TOOL = unrar
     with rarfile.RarFile(archive) as rf:
-        for info in rf.infolist():
+        infos = rf.infolist()
+        if len(infos) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError("El archivo comprimido tiene más de 20000 elementos.")
+        declared_size = sum(max(0, info.file_size) for info in infos if not info.isdir())
+        if declared_size > MAX_EXTRACTED_BYTES:
+            raise ValueError("El archivo comprimido supera el límite de extracción de 512 MB.")
+        extracted = 0
+        for info in infos:
             if info.isdir():
                 continue
-            _write_member(rf.open, info, _safe_target(dest, info.filename))
+            extracted += _write_member(rf.open, info, _safe_target(dest, info.filename),
+                                       MAX_EXTRACTED_BYTES - extracted)
 
 
 def extract(archive_path, filename):

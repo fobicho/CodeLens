@@ -3,8 +3,9 @@
 **Suelta un `.zip` o un `.rar` de cualquier proyecto y en segundos sabrás qué
 parte parece escrita por una máquina y qué está mal en el código.**
 
-Sin cuenta, sin clave de API, sin subir nada a ningún sitio. El archivo se
-descomprime, se analiza y se borra en tu propia máquina.
+Sin cuenta, sin clave de API, sin subir el proyecto a ningún sitio. El archivo se
+descomprime, se analiza y se borra en tu propia máquina. La interfaz carga la
+tipografía Schibsted Grotesk desde Google Fonts.
 
 ![Página de inicio de CodeLens](docs/landing.png)
 
@@ -23,7 +24,7 @@ descomprime, se analiza y se borra en tu propia máquina.
 ## Arranque rápido
 
 ```bash
-git clone https://github.com/<tu-usuario>/CodeLens.git
+git clone https://github.com/fobicho/CodeLens.git
 cd CodeLens
 python server.py
 ```
@@ -37,17 +38,17 @@ python server.py --no-browser      # no abrir el navegador
 ```
 
 **Requisitos:** Python 3.8 o superior y nada más. El `.zip` funciona tal cual;
-para `.rar` necesitas WinRAR instalado (trae `UnRAR.exe`) o `pip install rarfile`
-junto con `unrar` en el `PATH`.
+para `.rar` necesitas `pip install rarfile` y un backend como WinRAR/UnRAR o
+`unrar` en el `PATH`.
 
 ## El informe
 
 ### Detección de IA
 
-Cada archivo fuente se puntúa de 0 a 100. Por encima de 80 se marca como
+Cada archivo fuente se puntúa de 0 a 100. Con 80 o más se marca como
 probablemente escrito por IA, entre 30 y 79 como sospechoso, y por debajo de 30
-se lee como humano. El veredicto del proyecto sale de la media, así que un
-archivo raro no condena un repositorio entero.
+se lee como humano. El veredicto global del proyecto se calcula con la media y
+usa sus propios umbrales, así que un archivo raro no condena un repositorio entero.
 
 ![Informe: detección de IA](docs/detection.png)
 
@@ -83,7 +84,7 @@ es su media ponderada.
 | Estructura | 14% | Uniformidad en el largo de línea y patrones de espaciado |
 | Uso de funciones modernas | 16% | Amplitud y densidad de recursos del lenguaje |
 
-| Puntuación | Veredicto |
+| Puntuación global del proyecto | Veredicto |
 |---|---|
 | ≥ 60 | Probablemente generado por IA |
 | 25–59 | Mixto / sospechoso |
@@ -130,8 +131,9 @@ index.html ──POST /analyze (bytes crudos)──► server.py
                                            GET /report?id=<token>
 ```
 
-El análisis nunca toca el disco. Se guarda en memoria bajo un token aleatorio, se
-conservan los cuatro últimos y la página del informe lo pide por token — así
+El archivo y su contenido extraído se guardan temporalmente en tu máquina y se
+borran al terminar el análisis. El informe queda en memoria bajo un token
+aleatorio, se conservan los cuatro últimos y la página lo pide por token — así
 recargar funciona y nada sobrevive a un reinicio.
 
 | Archivo | Para qué sirve |
@@ -158,7 +160,8 @@ red.
   rechazan en vez de extraerse.
 - Los nombres de archivo que vienen de otros sistemas se sanean, porque un zip
   hecho en macOS puede contener legalmente caracteres que Windows rechaza.
-- No se envía nada a ninguna parte. No hay telemetría ni peticiones salientes.
+- El código y los resultados no se envían a ninguna parte y no hay telemetría.
+  La interfaz sí solicita la tipografía Schibsted Grotesk a Google Fonts.
 
 `--host 0.0.0.0` expone el servidor a tu red sin autenticación. Hazlo solo en una
 red de confianza.
@@ -172,6 +175,7 @@ red de confianza.
 - Lee como máximo 8000 archivos fuente por comprimido y salta los que pasan de
   1,5 MB. Cuando se detiene antes, el informe lo dice en vez de hacerse pasar por
   completo.
+- La extracción está limitada a 20000 elementos y 512 MB de contenido expandido.
 - Los directorios ignorados (`node_modules`, `dist`, `vendor`, `__pycache__`, etc.) no
   se analizan.
 - Sin historial de git, sin auditoría de dependencias, sin flujo de datos entre
